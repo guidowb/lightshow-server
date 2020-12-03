@@ -1,9 +1,10 @@
 SUBDIRS= \
-	mikasa-server
+	src
 
 .PHONY: prune-replicasets
 
 default:
+	(cd src; make)
 
 prune-replicasets:
 	@kubectl get replicasets | awk '$$2==0 { system("kubectl delete replicaset/" $$1) }'

@@ -5,7 +5,6 @@ import (
 	"net/http"
 
 	"github.com/gorilla/mux"
-	"github.com/gorilla/websocket"
 )
 
 // API interface
@@ -14,9 +13,8 @@ type API interface {
 }
 
 type api struct {
-	router   *mux.Router
-	upgrader websocket.Upgrader
-	pattern  string
+	router  *mux.Router
+	pattern string
 }
 
 // NewAPI returns an initialized Client API context
@@ -24,7 +22,6 @@ func NewAPI() API {
 	router := mux.NewRouter().StrictSlash(true)
 	api := api{
 		router,
-		websocket.Upgrader{},
 		"solid #000",
 	}
 	router.HandleFunc("/pattern", api.getPattern)

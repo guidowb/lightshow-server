@@ -1,4 +1,4 @@
-package lightshow
+package main
 
 import (
 	"lightshow"
