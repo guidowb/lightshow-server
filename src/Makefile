@@ -1,5 +1,5 @@
 IMAGE := lightshow-server
-SRCS := Dockerfile *.go go.*
+SRCS := Dockerfile *.go lightshow/*.go go.*
 
 default: build
 

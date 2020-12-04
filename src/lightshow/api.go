@@ -44,6 +44,20 @@ func (context *api) getPattern(response http.ResponseWriter, request *http.Reque
 
 func (context *api) connect(response http.ResponseWriter, request *http.Request) {
 
+	context.upgrader.CheckOrigin = func(r *http.Request) bool {
+		if r.Header["Origin"][0] == "lightshow-arduino" {
+			return true
+		}
+		log.Print("--- Refused access")
+		log.Print("    Host: ", r.Host)
+		log.Print("    URL: ", r.URL.String())
+		headers := r.Header
+		for key, value := range headers {
+			log.Print("    ", key, ": ", value)
+		}
+		log.Print("---")
+		return false
+	}
 	connection, err := context.upgrader.Upgrade(response, request, nil)
 	if err != nil {
 		log.Print("Upgrade error:", err)
@@ -51,6 +65,8 @@ func (context *api) connect(response http.ResponseWriter, request *http.Request)
 		return
 	}
 	defer connection.Close()
+
+	log.Println("Client connected")
 
 	done := make(chan struct{})
 	go context.sendUpdates(connection, done)
