@@ -1,24 +1,17 @@
-apiVersion: extensions/v1beta1
-kind: Ingress
+apiVersion: projectcontour.io/v1
+kind: HTTPProxy
 metadata:
-  name: lightshow-server
-  annotations:
-    kubernetes.io/ingress.class: contour
-    ingress.kubernetes.io/force-ssl-redirect: "true"
-    cert-manager.io/cluster-issuer: letsencrypt-prod
-    kubernetes.io/tls-acme: "true"
+  name: lightshow-api
 spec:
-  rules:
-  - host: api.lightshow.guidowb.online
-    http:
-      paths:
-      - backend:
-          serviceName: lightshow-server
-          servicePort: 8080
-  tls:
-  - hosts:
-    - api.lightshow.guidowb.online
-    secretName: lightshow-certificate
+  virtualhost:
+    fqdn: api.lightshow.guidowb.online
+    tls:
+      secretName: lightshow-certificate
+  routes:
+    - services:
+        - name: lightshow-server
+          port: 8080
+      enableWebsockets: true
 ---
 apiVersion: v1
 kind: Service
