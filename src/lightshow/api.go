@@ -15,11 +15,17 @@ type API interface {
 	ServeHTTP(response http.ResponseWriter, request *http.Request)
 }
 
+type clientinfo struct {
+	MacAddress string
+	Program    string
+	Connection *websocket.Conn
+	Commands   chan string
+}
+
 type api struct {
 	router   *mux.Router
 	upgrader websocket.Upgrader
-	pattern  string
-	commands chan string
+	clients  map[string]*clientinfo
 }
 
 // NewAPI returns an initialized Client API context
@@ -28,10 +34,9 @@ func NewAPI() API {
 	api := api{
 		router,
 		websocket.Upgrader{},
-		"solid #000",
-		make(chan string),
+		map[string]*clientinfo{},
 	}
-	router.HandleFunc("/pattern", api.setPattern).Methods(http.MethodPost)
+	router.HandleFunc("/pattern/{program}", api.setPattern).Methods(http.MethodPost)
 	router.HandleFunc("/connect", api.connect)
 	return api
 }
@@ -41,21 +46,32 @@ func (context api) ServeHTTP(response http.ResponseWriter, request *http.Request
 }
 
 func (context *api) setPattern(response http.ResponseWriter, request *http.Request) {
+
 	buf := new(bytes.Buffer)
 	buf.ReadFrom(request.Body)
 	pattern := buf.String()
 	log.Println("Received pattern:")
 	log.Println(pattern)
-	context.commands <- "pattern\n" + pattern
+
+	vars := mux.Vars(request)
+	program := vars["program"]
+	log.Printf("For program: %s\n", program)
+
+	for _, client := range context.clients {
+		if client.Program == program {
+			log.Printf("Updating client: %s\n", client.MacAddress)
+			client.Commands <- "pattern\n" + pattern
+		}
+	}
 	response.WriteHeader(http.StatusCreated)
 }
 
-func (context *api) getCookie(request *http.Request, name string) *http.Cookie {
+func (context *api) getCookie(request *http.Request, name string) *string {
 
 	cookies := request.Cookies()
 	for _, cookie := range cookies {
 		if cookie.Name == name {
-			return cookie
+			return &cookie.Value
 		}
 	}
 	return nil
@@ -63,8 +79,11 @@ func (context *api) getCookie(request *http.Request, name string) *http.Cookie {
 
 func (context *api) connect(response http.ResponseWriter, request *http.Request) {
 
+	macAddress := context.getCookie(request, "macAddress")
+	program := context.getCookie(request, "program")
+
 	context.upgrader.CheckOrigin = func(r *http.Request) bool {
-		if r.Header["Origin"][0] == "lightshow-arduino" {
+		if macAddress != nil && program != nil && r.Header["Origin"][0] == "lightshow-arduino" {
 			return true
 		}
 		log.Print("--- Refused access")
@@ -78,7 +97,6 @@ func (context *api) connect(response http.ResponseWriter, request *http.Request)
 		return false
 	}
 
-	macAddress := context.getCookie(request, "macAddress")
 	connection, err := context.upgrader.Upgrade(response, request, nil)
 	if err != nil {
 		log.Print("Upgrade error:", err)
@@ -87,47 +105,57 @@ func (context *api) connect(response http.ResponseWriter, request *http.Request)
 	}
 	defer connection.Close()
 
-	log.Println("Client connected, ", macAddress)
-	connection.WriteControl(websocket.PingMessage, []byte{}, time.Time{})
+	client, present := context.clients[*macAddress]
+	if present {
+		log.Printf("Client %s reconnected, program %s\n", *macAddress, *program)
+		close(client.Commands)
+		client.Connection.Close()
+	} else {
+		log.Printf("Client %s connected, program %s\n", *macAddress, *program)
+	}
+	client = &clientinfo{
+		*macAddress,
+		*program,
+		connection,
+		make(chan string),
+	}
+	context.clients[*macAddress] = client
 
-	done := make(chan struct{})
-	go context.sendUpdates(connection, done)
-	context.handleRequests(connection)
-	close(done)
+	go context.sendCommands(client)
+	context.handleUpdates(client)
 
-	log.Println("Client disconnected, ", macAddress)
+	delete(context.clients, *macAddress)
+	log.Printf("Client %s disconnected\n", *macAddress)
 }
 
-func (context *api) handleRequests(connection *websocket.Conn) {
+func (context *api) handleUpdates(client *clientinfo) {
 	for {
-		messageType, message, err := connection.ReadMessage()
+		_, message, err := client.Connection.ReadMessage()
 		if err != nil {
-			log.Printf("Websocket error: %v", err)
 			if !websocket.IsCloseError(err, websocket.CloseNormalClosure) {
-				log.Printf("Websocket error: %v", err)
+				log.Printf("Client %s websocket error: %v", client.MacAddress, err)
 			}
 			return
 		}
-		log.Printf("Received message")
-		log.Printf("Type: %s", messageType)
-		log.Printf("Data: %s", message)
+		log.Printf("Client %s sent message: %s\n", client.MacAddress, message)
 	}
 }
 
-func (context *api) sendUpdates(connection *websocket.Conn, done chan struct{}) {
-
-	for { // Outer loop repeats when device pairing changes
+func (context *api) sendCommands(client *clientinfo) {
+	for {
 		select {
 		case <-time.After(35 * time.Second):
-			log.Printf("Sending a ping")
-			connection.WriteControl(websocket.PingMessage, []byte{}, time.Time{})
+			// log.Printf("Client %s getting a ping\n", client.MacAddress)
+			client.Connection.WriteControl(websocket.PingMessage, []byte{}, time.Time{})
 			break
-		case command := <-context.commands:
-			log.Printf("Sending command: %s\n", command)
-			connection.WriteMessage(websocket.TextMessage, []byte(command))
+		case command, ok := <-client.Commands:
+			if ok {
+				log.Printf("Client %s getting command: %s\n", client.MacAddress, command)
+				client.Connection.WriteMessage(websocket.TextMessage, []byte(command))
+			} else {
+				return
+			}
 			break
-		case <-done:
-			return
 		}
 	}
 }
