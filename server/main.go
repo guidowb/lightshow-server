@@ -1,7 +1,7 @@
 package main
 
 import (
-	"lightshow"
+	lightshow "lightshow/api"
 	"log"
 	"net/http"
 )

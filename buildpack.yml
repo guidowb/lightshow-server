@@ -1,0 +1,4 @@
+---
+go:
+  targets:
+  - server

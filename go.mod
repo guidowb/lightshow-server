@@ -1,8 +1,10 @@
-module main
+module lightshow
 
 go 1.14
 
-replace lightshow => ./lightshow
+replace (
+	lightshow => ./lightshow
+)
 
 require (
 	github.com/gorilla/mux v1.7.4
