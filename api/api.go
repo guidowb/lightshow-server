@@ -26,6 +26,7 @@ type api struct {
 	router   *mux.Router
 	upgrader websocket.Upgrader
 	clients  map[string]*clientinfo
+	programs map[string]string
 }
 
 // NewAPI returns an initialized Client API context
@@ -35,6 +36,7 @@ func NewAPI() API {
 		router,
 		websocket.Upgrader{},
 		map[string]*clientinfo{},
+		map[string]string{},
 	}
 	router.HandleFunc("/pattern/{program}", api.setPattern).Methods(http.MethodPost)
 	router.HandleFunc("/connect", api.connect)
@@ -56,6 +58,8 @@ func (context *api) setPattern(response http.ResponseWriter, request *http.Reque
 	vars := mux.Vars(request)
 	program := vars["program"]
 	log.Printf("For program: %s\n", program)
+
+	context.programs[program] = pattern
 
 	for _, client := range context.clients {
 		if client.Program == program {
@@ -122,6 +126,9 @@ func (context *api) connect(response http.ResponseWriter, request *http.Request)
 	context.clients[*macAddress] = client
 
 	go context.sendCommands(client)
+	if pattern, ok := context.programs[*program]; ok {
+		client.Commands <- "pattern\n" + pattern
+	}
 	context.handleUpdates(client)
 
 	delete(context.clients, *macAddress)
@@ -144,10 +151,11 @@ func (context *api) handleUpdates(client *clientinfo) {
 func (context *api) sendCommands(client *clientinfo) {
 	for {
 		select {
+
 		case <-time.After(35 * time.Second):
 			// log.Printf("Client %s getting a ping\n", client.MacAddress)
 			client.Connection.WriteControl(websocket.PingMessage, []byte{}, time.Time{})
-			break
+
 		case command, ok := <-client.Commands:
 			if ok {
 				log.Printf("Client %s getting command: %s\n", client.MacAddress, command)
@@ -155,7 +163,6 @@ func (context *api) sendCommands(client *clientinfo) {
 			} else {
 				return
 			}
-			break
 		}
 	}
 }
